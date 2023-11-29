@@ -17,6 +17,9 @@ import asyncio
 import json
 import logging
 import signal
+
+import torch
+import torch.nn as nn
 from vehicle import Vehicle, vehicle  # type: ignore
 from velocitas_sdk.util.log import (  # type: ignore
     get_opentelemetry_log_factory,
@@ -24,9 +27,6 @@ from velocitas_sdk.util.log import (  # type: ignore
 )
 from velocitas_sdk.vdb.reply import DataPointReply
 from velocitas_sdk.vehicle_app import VehicleApp
-
-import torch
-import torch.nn as nn
 
 # Configure the VehicleApp logger with the necessary log config  and level.
 logging.setLogRecordFactory(get_opentelemetry_log_factory())
@@ -43,8 +43,13 @@ class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout_rate):
         super(LSTMModel, self).__init__()
         self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=num_layers, 
-                            batch_first=True, dropout=dropout_rate)
+        self.lstm = nn.LSTM(
+            input_size,
+            hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout_rate,
+        )
         self.linear = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
@@ -86,18 +91,20 @@ class SampleApp(VehicleApp):
         self.input_size = 5  # 입력 특성의 수
         self.hidden_size = 50  # LSTM 레이어의 히든 사이즈
         self.output_size = 1  # 출력의 크기
-        self.num_layers = 2   # LSTM 레이어의 수
+        self.num_layers = 2  # LSTM 레이어의 수
         self.dropout_rate = 0.2  # 드롭아웃 비율
         self.sequence_length = 100  # 시퀀스 길이
 
     async def on_start(self):
         await self.Vehicle.Speed.subscribe(self.on_speed_change)
-        await self.Vehicle.Chassis.SteeringWheel.Angle\
-            .subscribe(self.on_steering_change)
+        await self.Vehicle.Chassis.SteeringWheel.Angle.subscribe(
+            self.on_steering_change
+        )
         await self.Vehicle.OBD.ThrottlePosition.subscribe(self.on_throttle_change)
         await self.Vehicle.Chassis.Brake.PedalPosition.subscribe(self.on_brake_change)
-        await self.Vehicle.ADAS.LaneDepartureDetection.IsWarning\
-            .subscribe(self.on_lane_change)
+        await self.Vehicle.ADAS.LaneDepartureDetection.IsWarning.subscribe(
+            self.on_lane_change
+        )
         await self.Vehicle.Speed.subscribe(self.tensor_change)
 
     async def on_speed_change(self, data: DataPointReply):
@@ -113,26 +120,35 @@ class SampleApp(VehicleApp):
         self.carla_brake = data.get(self.Vehicle.Chassis.Brake.PedalPosition).value
 
     async def on_lane_change(self, data: DataPointReply):
-        self.carla_lane = data.get(self.Vehicle.ADAS.LaneDepartureDetection.
-                                   IsWarning).value
+        self.carla_lane = data.get(
+            self.Vehicle.ADAS.LaneDepartureDetection.IsWarning
+        ).value
 
     async def tensor_change(self, data: DataPointReply):
-
         self.carla_speed = data.get(self.Vehicle.Speed).value
 
-        more_elements = torch.tensor([self.carla_speed,
-                                      self.carla_steering,
-                                      self.carla_brake,
-                                      self.carla_throttle,
-                                      self.carla_lane])
+        more_elements = torch.tensor(
+            [
+                self.carla_speed,
+                self.carla_steering,
+                self.carla_brake,
+                self.carla_throttle,
+                self.carla_lane,
+            ]
+        )
 
         self.tensor_array[self.count] = more_elements
         self.count += 1
-        lstm_path = '/workspaces/Vapp/app/src/trained_lstm_model.pth'
+        lstm_path = "/workspaces/Vapp/app/src/trained_lstm_model.pth"
         if self.count == 100:
             self.count2 += 1
-            model = LSTMModel(self.input_size, self.hidden_size, self.output_size, 
-                              self.num_layers, self.dropout_rate)
+            model = LSTMModel(
+                self.input_size,
+                self.hidden_size,
+                self.output_size,
+                self.num_layers,
+                self.dropout_rate,
+            )
             model.load_state_dict(torch.load(lstm_path))
             model.eval()
 
@@ -141,7 +157,7 @@ class SampleApp(VehicleApp):
             with torch.no_grad():
                 self.score = model(input_tensor)
             self.count = 0
-            self.tensor_array = torch.zeros([100, 5])         
+            self.tensor_array = torch.zeros([100, 5])
             score = self.score.item()
             self.mean_score += score
             mean_score = self.mean_score / self.count2
@@ -160,6 +176,7 @@ async def main():
     vehicle_app = SampleApp(vehicle)
 
     await vehicle_app.run()
+
 
 LOOP = asyncio.get_event_loop()
 LOOP.add_signal_handler(signal.SIGTERM, LOOP.stop)
