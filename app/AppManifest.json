@@ -11,6 +11,22 @@
                         {
                             "path": "Vehicle.Speed",
                             "access": "read"
+                        },
+                        {
+                            "path": "Vehicle.Chassis.SteeringWheel.Angle",
+                            "access": "read"
+                        },
+                        {
+                            "path": "Vehicle.OBD.ThrottlePosition",
+                            "access": "read"
+                        },
+                        {
+                            "path": "Vehicle.Chassis.Brake.PedalPosition",
+                            "access": "read"
+                        },
+                        {
+                            "path": "Vehicle.ADAS.LaneDepartureDetection.IsWarning",
+                            "access": "read"
                         }
                     ]
                 }
@@ -20,11 +36,15 @@
             "type": "pubsub",
             "config": {
                 "reads": [
-                    "sampleapp/getSpeed"
+                    "sampleapp/getSpeed",
+                    "sampleapp/getSteer",
+                    "sampleapp/getThrottle",
+                    "sampleapp/getBrake",
+                    "sampleapp/getLane"
                 ],
                 "writes": [
-                    "sampleapp/getSpeed/response",
-                    "sampleapp/currentSpeed"
+                    "sampleapp/getScore/response",
+                    "sampleapp/currentScore"
                 ]
             }
         }

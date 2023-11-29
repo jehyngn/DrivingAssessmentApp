@@ -13,7 +13,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """A sample skeleton vehicle app."""
-
 import asyncio
 import json
 import logging
@@ -27,17 +26,22 @@ from velocitas_sdk.util.log import (  # type: ignore
     get_opentelemetry_log_format,
 )
 from velocitas_sdk.vdb.reply import DataPointReply
-from velocitas_sdk.vehicle_app import VehicleApp, subscribe_topic
+from velocitas_sdk.vehicle_app import VehicleApp
 
-# Configure the VehicleApp logger with the necessary log config and level.
+# Configure the VehicleApp logger with the necessary log config  and level.
 logging.setLogRecordFactory(get_opentelemetry_log_factory())
 logging.basicConfig(format=get_opentelemetry_log_format())
 logging.getLogger().setLevel("DEBUG")
 logger = logging.getLogger(__name__)
 
-GET_SPEED_REQUEST_TOPIC = "sampleapp/getSpeed"
-GET_SPEED_RESPONSE_TOPIC = "sampleapp/getSpeed/response"
-DATABROKER_SUBSCRIPTION_TOPIC = "sampleapp/currentSpeed"
+GET_SCORE_REQUEST_TOPIC = "sampleapp/getScore"
+GET_SCORE_RESPONSE_TOPIC = "sampleapp/getScore/response"
+
+DATABROKER_SPEED_SUBSCRIPTION_TOPIC = "sampleapp/currentSpeed"
+DATABROKER_STEER_SUBSCRIPTION_TOPIC = "sampleapp/currentSteer"
+DATABROKER_TRHOT_SUBSCRIPTION_TOPIC = "sampleapp/currentThrottle"
+DATABROKER_BRAKE_SUBSCRIPTION_TOPIC = "sampleapp/currentBrake"
+DATABROKER_LANE_SUBSCRIPTION_TOPIC = "sampleapp/currentLane"
 
 
 class LSTMModel(nn.Module):
@@ -76,74 +80,107 @@ class SampleApp(VehicleApp):
     """
 
     def __init__(self, vehicle_client: Vehicle):
-        # SampleApp inherits from VehicleApp.
         super().__init__()
         self.Vehicle = vehicle_client
+        self.carla_speed = 0.0
+        self.carla_steering = 0
+        self.carla_brake = 0
+        self.carla_throttle = 0.0
+        self.carla_lane = 0
+        self.tensor_array = torch.zeros([100, 5])
+        self.count = 0
+        self.count2 = 0
+        self.score = torch.tensor(0.0)
+        self.mean_score = 0.0
+
+        self.input_size = 5  # 입력 특성의 수
+        self.hidden_size = 50  # LSTM 레이어의 히든 사이즈
+        self.output_size = 1  # 출력의 크기
+        self.num_layers = 2  # LSTM 레이어의 수
+        self.dropout_rate = 0.2  # 드롭아웃 비율
+        self.sequence_length = 100  # 시퀀스 길이
 
     async def on_start(self):
-        """Run when the vehicle app starts"""
-        # This method will be called by the SDK when the connection to the
-        # Vehicle DataBroker is ready.
-        # Here you can subscribe for the Vehicle Signals update (e.g. Vehicle Speed).
         await self.Vehicle.Speed.subscribe(self.on_speed_change)
+        await self.Vehicle.Chassis.SteeringWheel.Angle.subscribe(
+            self.on_steering_change
+        )
+        await self.Vehicle.OBD.ThrottlePosition.subscribe(self.on_throttle_change)
+        await self.Vehicle.Chassis.Brake.PedalPosition.subscribe(self.on_brake_change)
+        await self.Vehicle.ADAS.LaneDepartureDetection.IsWarning.subscribe(
+            self.on_lane_change
+        )
+        await self.Vehicle.Speed.subscribe(self.tensor_change)
 
     async def on_speed_change(self, data: DataPointReply):
-        """The on_speed_change callback, this will be executed when receiving a new
-        vehicle signal updates."""
-        # Get the current vehicle speed value from the received DatapointReply.
-        # The DatapointReply containes the values of all subscribed DataPoints of
-        # the same callback.
-        vehicle_speed = data.get(self.Vehicle.Speed).value
+        self.carla_speed = data.get(self.Vehicle.Speed).value
 
-        # Do anything with the received value.
-        # Example:
-        # - Publishes current speed to MQTT Topic (i.e. DATABROKER_SUBSCRIPTION_TOPIC).
-        await self.publish_event(
-            DATABROKER_SUBSCRIPTION_TOPIC,
-            json.dumps({"speed": vehicle_speed}),
+    async def on_steering_change(self, data: DataPointReply):
+        self.carla_steering = data.get(self.Vehicle.Chassis.SteeringWheel.Angle).value
+
+    async def on_throttle_change(self, data: DataPointReply):
+        self.carla_throttle = data.get(self.Vehicle.OBD.ThrottlePosition).value
+
+    async def on_brake_change(self, data: DataPointReply):
+        self.carla_brake = data.get(self.Vehicle.Chassis.Brake.PedalPosition).value
+
+    async def on_lane_change(self, data: DataPointReply):
+        self.carla_lane = data.get(
+            self.Vehicle.ADAS.LaneDepartureDetection.IsWarning
+        ).value
+
+    async def tensor_change(self, data: DataPointReply):
+        self.carla_speed = data.get(self.Vehicle.Speed).value
+
+        more_elements = torch.tensor(
+            [
+                self.carla_speed,
+                self.carla_steering,
+                self.carla_brake,
+                self.carla_throttle,
+                self.carla_lane,
+            ]
         )
 
-    @subscribe_topic(GET_SPEED_REQUEST_TOPIC)
-    async def on_get_speed_request_received(self, data: str) -> None:
-        """The subscribe_topic annotation is used to subscribe for incoming
-        PubSub events, e.g. MQTT event for GET_SPEED_REQUEST_TOPIC.
-        """
+        self.tensor_array[self.count] = more_elements
+        self.count += 1
+        lstm_path = "/workspaces/Vapp/app/src/trained_lstm_model.pth"
+        if self.count == 100:
+            self.count2 += 1
+            model = LSTMModel(
+                self.input_size,
+                self.hidden_size,
+                self.output_size,
+                self.num_layers,
+                self.dropout_rate,
+            )
+            model.load_state_dict(torch.load(lstm_path))
+            model.eval()
 
-        # Use the logger with the preferred log level (e.g. debug, info, error, etc)
-        logger.debug(
-            "PubSub event for the Topic: %s -> is received with the data: %s",
-            GET_SPEED_REQUEST_TOPIC,
-            data,
-        )
+            input_tensor = self.tensor_array.unsqueeze(0)
 
-        # Getting current speed from VehicleDataBroker using the DataPoint getter.
-        vehicle_speed = (await self.Vehicle.Speed.get()).value
+            with torch.no_grad():
+                self.score = model(input_tensor)
+            self.count = 0
+            self.tensor_array = torch.zeros([100, 5])
+            score = self.score.item()
+            self.mean_score += score
+            mean_score = self.mean_score / self.count2
+            msg = f"current score: {score} mean score:{mean_score}"
+            response_data = {"message": msg}
 
-        # Do anything with the speed value.
-        # Example:
-        # - Publishes the vehicle speed to MQTT topic (i.e. GET_SPEED_RESPONSE_TOPIC).
-        await self.publish_event(
-            GET_SPEED_RESPONSE_TOPIC,
-            json.dumps(
-                {
-                    "result": {
-                        "status": 0,
-                        "message": f"""Current Speed = {vehicle_speed}""",
-                    },
-                }
-            ),
-        )
+            await self.publish_event(
+                GET_SCORE_RESPONSE_TOPIC,
+                json.dumps(response_data),
+            )
 
 
 async def main():
     """Main function"""
     logger.info("Starting SampleApp...")
-    # Constructing SampleApp and running it.
     vehicle_app = SampleApp(vehicle)
-    await vehicle_app.run()
 
-    # for using torch(temp)
-    torch.cuda.is_available()
+    await vehicle_app.run()
 
 
 LOOP = asyncio.get_event_loop()
