@@ -167,7 +167,7 @@ class SampleApp(VehicleApp):
             score = self.score.item()
             self.mean_score += score
             mean_score = self.mean_score / self.count2
-            msg = f"current score: {score} mean score:{mean_score}"
+            msg = f"current score: {round(score, 2)} mean score:{round(mean_score, 2)}"
             response_data = {"message": msg}
 
             await self.publish_event(
