@@ -81,6 +81,7 @@ class SampleApp(VehicleApp):
 
     def __init__(self, vehicle_client: Vehicle):
         super().__init__()
+        lstm_path = "/workspace/app/src/trained_lstm_model.pth"
         self.Vehicle = vehicle_client
         self.carla_speed = 0.0
         self.carla_steering = 0
@@ -93,12 +94,22 @@ class SampleApp(VehicleApp):
         self.score = torch.tensor(0.0)
         self.mean_score = 0.0
 
-        self.input_size = 5  # 입력 특성의 수
-        self.hidden_size = 50  # LSTM 레이어의 히든 사이즈
-        self.output_size = 1  # 출력의 크기
-        self.num_layers = 2  # LSTM 레이어의 수
-        self.dropout_rate = 0.2  # 드롭아웃 비율
-        self.sequence_length = 100  # 시퀀스 길이
+        self.input_size = 5
+        self.hidden_size = 50
+        self.output_size = 1
+        self.num_layers = 2
+        self.dropout_rate = 0.2
+        self.sequence_length = 100
+
+        self.model = LSTMModel(
+            self.input_size,
+            self.hidden_size,
+            self.output_size,
+            self.num_layers,
+            self.dropout_rate,
+        )
+        self.model.load_state_dict(torch.load(lstm_path))
+        self.model.eval()
 
     async def on_start(self):
         await self.Vehicle.Speed.subscribe(self.on_speed_change)
@@ -144,23 +155,13 @@ class SampleApp(VehicleApp):
 
         self.tensor_array[self.count] = more_elements
         self.count += 1
-        lstm_path = "/workspace/app/src/trained_lstm_model.pth"
         if self.count == 100:
             self.count2 += 1
-            model = LSTMModel(
-                self.input_size,
-                self.hidden_size,
-                self.output_size,
-                self.num_layers,
-                self.dropout_rate,
-            )
-            model.load_state_dict(torch.load(lstm_path))
-            model.eval()
 
             input_tensor = self.tensor_array.unsqueeze(0)
 
             with torch.no_grad():
-                self.score = model(input_tensor)
+                self.score = self.model(input_tensor)
             self.count = 0
             self.tensor_array = torch.zeros([100, 5])
             score = self.score.item()
