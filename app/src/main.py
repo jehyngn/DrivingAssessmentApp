@@ -144,7 +144,7 @@ class SampleApp(VehicleApp):
 
         self.tensor_array[self.count] = more_elements
         self.count += 1
-        lstm_path = "/workspaces/Vapp/app/src/trained_lstm_model.pth"
+        lstm_path = "/workspace/app/src/trained_lstm_model.pth"
         if self.count == 100:
             self.count2 += 1
             model = LSTMModel(
