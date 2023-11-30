@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y python3-dev
 
 COPY ./.velocitas.json /workspace/.velocitas_org.json
 COPY ./app /workspace/app
+COPY ./app/trained_lstm_model.pth /workspace/app/src/trained_lstm_model.pth
 
 # FIXME: For build tooling we only need "devenv-devcontainer-setup", we should be able to
 # filter this without manual jq intervention...
@@ -49,7 +50,5 @@ WORKDIR /workspace
 RUN velocitas init
 
 WORKDIR /workspace/app/src
-
-COPY ./trained_lstm_model.pth /workspace/app/src/trained_lstm_model.pth
 
 CMD ["python3","main.py"]
