@@ -50,6 +50,6 @@ RUN velocitas init
 
 WORKDIR /workspace/app/src
 
-COPY ./trained_lstm_model.pth ./trained_lstm_model.pth
+COPY ./trained_lstm_model.pth /workspace/app/src/trained_lstm_model.pth
 
 CMD ["python3","main.py"]
